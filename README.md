@@ -1,0 +1,3 @@
+# RetroRun
+This project is a 2D platformer Arcade (running) multi-player game. The project will be made in Unity3D and in this game, minimum two players will race at a platformer stage. Players will collect golds as they advance in the stage and also they try to evade the stage’s traps. Also all players can set up traps as well for slowing/blocking/interacting the other players. The game will feature a market system that the players can buy cosmetics, like skins for their characters and/or unlock characters. The data of the players (golds the player collected, skins the player bought etc…) will be stored in a server so the game engine can fetch the data and serve it to the player at the start. 
+
