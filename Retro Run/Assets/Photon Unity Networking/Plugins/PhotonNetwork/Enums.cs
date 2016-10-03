@@ -63,11 +63,12 @@ public enum PhotonNetworkingMessage
     OnLeftRoom,
 
     /// <summary>
-    /// Called after switching to a new MasterClient when the current one leaves. The former already got removed from the player list.
+    /// Called after switching to a new MasterClient when the current one leaves.
     /// </summary>
     /// <remarks>
     /// This is not called when this client enters a room.
-    ///
+    /// The former MasterClient is still in the player list when this method get called.
+    /// 
     /// Example: void OnMasterClientSwitched(PhotonPlayer newMasterClient) { ... }
     /// </remarks>
     OnMasterClientSwitched,
@@ -357,6 +358,20 @@ public enum PhotonNetworkingMessage
     /// Example: void OnCustomAuthenticationFailed(string debugMessage) { ... }
     /// </remarks>
     OnCustomAuthenticationFailed,
+
+    /// <summary>
+    /// Called when your Custom Authentication service responds with additional data.
+    /// </summary>
+    /// <remarks>
+    /// Custom Authentication services can include some custom data in their response. 
+    /// When present, that data is made available in this callback as Dictionary.
+    /// While the keys of your data have to be strings, the values can be either string or a number (in Json).
+    /// You need to make extra sure, that the value type is the one you expect. Numbers become (currently) int64.
+    /// 
+    /// Example: void OnCustomAuthenticationResponse(Dictionary&lt;string, object&gt; data) { ... } 
+    /// </remarks>
+    /// <see cref="https://doc.photonengine.com/en/realtime/current/reference/custom-authentication"/>
+    OnCustomAuthenticationResponse,
 
     /// <summary>
     /// Called by PUN when the response to a WebRPC is available. See PhotonNetwork.WebRPC.

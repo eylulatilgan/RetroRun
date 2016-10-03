@@ -241,7 +241,7 @@ public class PhotonView : Photon.MonoBehaviour
     [SerializeField]
     protected internal bool isRuntimeInstantiated;
 
-    protected internal bool destroyedByPhotonNetwork;
+    protected internal bool removedFromLocalViewList;
 
     internal MonoBehaviour[] RpcMonoBehaviours;
     private MethodInfo OnSerializeMethodInfo;
@@ -300,16 +300,16 @@ public class PhotonView : Photon.MonoBehaviour
 
     protected internal void OnDestroy()
     {
-        if (!this.destroyedByPhotonNetwork)
+        if (!this.removedFromLocalViewList)
         {
             bool wasInList = PhotonNetwork.networkingPeer.LocalCleanPhotonView(this);
             bool loading = false;
-            
+
             #if !UNITY_5 || UNITY_5_0 || UNITY_5_1
             loading = Application.isLoadingLevel;
             #endif
 
-            if (wasInList && !loading && !PhotonHandler.AppQuits && PhotonNetwork.logLevel >= PhotonLogLevel.Informational)
+            if (wasInList && !loading && this.instantiationId > 0 && !PhotonHandler.AppQuits && PhotonNetwork.logLevel >= PhotonLogLevel.Informational)
             {
                 Debug.Log("PUN-instantiated '" + this.gameObject.name + "' got destroyed by engine. This is OK when loading levels. Otherwise use: PhotonNetwork.Destroy().");
             }
@@ -505,23 +505,24 @@ public class PhotonView : Photon.MonoBehaviour
     {
         if (component != null)
         {
-            if (this.m_OnSerializeMethodInfos.ContainsKey(component) == false)
+            MethodInfo method = null;
+            bool found = this.m_OnSerializeMethodInfos.TryGetValue(component, out method);
+            if (!found)
             {
-                MethodInfo newMethod = null;
-                bool foundMethod = NetworkingPeer.GetMethod(component as MonoBehaviour, PhotonNetworkingMessage.OnPhotonSerializeView.ToString(), out newMethod);
+                bool foundMethod = NetworkingPeer.GetMethod(component as MonoBehaviour, PhotonNetworkingMessage.OnPhotonSerializeView.ToString(), out method);
 
                 if (foundMethod == false)
                 {
                     Debug.LogError("The observed monobehaviour (" + component.name + ") of this PhotonView does not implement OnPhotonSerializeView()!");
-                    newMethod = null;
+                    method = null;
                 }
 
-                this.m_OnSerializeMethodInfos.Add(component, newMethod);
+                this.m_OnSerializeMethodInfos.Add(component, method);
             }
 
-            if (this.m_OnSerializeMethodInfos[component] != null)
+            if (method != null)
             {
-                this.m_OnSerializeMethodInfos[component].Invoke(component, new object[] {stream, info});
+                method.Invoke(component, new object[] {stream, info});
             }
         }
     }

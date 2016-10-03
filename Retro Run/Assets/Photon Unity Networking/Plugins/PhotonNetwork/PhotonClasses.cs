@@ -20,6 +20,9 @@
 /// \brief Useful GUI elements for PUN.
 #pragma warning restore 1587
 
+#if UNITY_5 && !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2
+#define UNITY_MIN_5_3
+#endif
 
 using System;
 using System.Collections.Generic;
@@ -62,13 +65,17 @@ public interface IPunObservable
 }
 
 /// <summary>
-/// Defines all the methods that PUN will call in specific situations, except OnPhotonSerializeView. Implemented by PunBehaviour.
+/// This interface is used as definition of all callback methods of PUN, except OnPhotonSerializeView. Preferably, implement them individually.
 /// </summary>
 /// <remarks>
+/// This interface is available for completeness, more than for actually implementing it in a game.
+/// You can implement each method individually in any MonoMehaviour, without implementing IPunCallbacks.
+///
+/// PUN calls all callbacks by name. Don't use implement callbacks with fully qualified name.
+/// Example: IPunCallbacks.OnConnectedToPhoton won't get called by Unity's SendMessage().
+///
 /// PUN will call these methods on any script that implements them, analog to Unity's events and callbacks.
 /// The situation that triggers the call is described per method.
-///
-/// Please simply extend PunBehaviour to implement individual methods.
 ///
 /// OnPhotonSerializeView is NOT called like these callbacks! It's usage frequency is much higher and it is implemented in: IPunObservable.
 /// </remarks>
@@ -99,10 +106,11 @@ public interface IPunCallbacks
     void OnLeftRoom();
 
     /// <summary>
-    /// Called after switching to a new MasterClient when the current one leaves. The former already got removed from the player list.
+    /// Called after switching to a new MasterClient when the current one leaves.
     /// </summary>
     /// <remarks>
     /// This is not called when this client enters a room.
+    /// The former MasterClient is still in the player list when this method get called.
     /// </remarks>
     void OnMasterClientSwitched(PhotonPlayer newMasterClient);
 
@@ -328,6 +336,20 @@ public interface IPunCallbacks
     void OnCustomAuthenticationFailed(string debugMessage);
 
     /// <summary>
+    /// Called when your Custom Authentication service responds with additional data.
+    /// </summary>
+    /// <remarks>
+    /// Custom Authentication services can include some custom data in their response.
+    /// When present, that data is made available in this callback as Dictionary.
+    /// While the keys of your data have to be strings, the values can be either string or a number (in Json).
+    /// You need to make extra sure, that the value type is the one you expect. Numbers become (currently) int64.
+    ///
+    /// Example: void OnCustomAuthenticationResponse(Dictionary&lt;string, object&gt; data) { ... }
+    /// </remarks>
+    /// <see cref="https://doc.photonengine.com/en/realtime/current/reference/custom-authentication"/>
+    void OnCustomAuthenticationResponse(Dictionary<string, object> data);
+
+    /// <summary>
     /// Called by PUN when the response to a WebRPC is available. See PhotonNetwork.WebRPC.
     /// </summary>
     /// <remarks>
@@ -373,7 +395,7 @@ public interface IPunCallbacks
 /// Defines all the methods that a Object Pool must implement, so that PUN can use it.
 /// </summary>
 /// <remarks>
-/// To use a Object Pool for instantiation, you can set PhotonNetwork.ObjectPool. 
+/// To use a Object Pool for instantiation, you can set PhotonNetwork.ObjectPool.
 /// That is used for all objects, as long as ObjectPool is not null.
 /// The pool has to return a valid non-null GameObject when PUN calls Instantiate.
 /// Also, the position and rotation must be applied.
@@ -382,8 +404,8 @@ public interface IPunCallbacks
 /// OnEnable will be called (by your pool) but the networking values are not updated yet
 /// when that happens. OnEnable will have outdated values for PhotonView (isMine, etc.).
 /// You might have to adjust scripts.
-/// 
-/// PUN will call OnPhotonInstantiate (see IPunCallbacks). This should be used to 
+///
+/// PUN will call OnPhotonInstantiate (see IPunCallbacks). This should be used to
 /// setup the re-used object with regards to networking values / ownership.
 /// </remarks>
 public interface IPunPrefabPool
@@ -418,14 +440,43 @@ namespace Photon
     /// </summary>
     public class MonoBehaviour : UnityEngine.MonoBehaviour
     {
+        /// <summary>Cache field for the PhotonView on this GameObject.</summary>
+        private PhotonView pvCache = null;
+        
+        /// <summary>A cached reference to a PhotonView on this GameObject.</summary>
+        /// <remarks>
+        /// If you intend to work with a PhotonView in a script, it's usually easier to write this.photonView.
+        ///
+        /// If you intend to remove the PhotonView component from the GameObject but keep this Photon.MonoBehaviour, 
+        /// avoid this reference or modify this code to use PhotonView.Get(obj) instead.
+        /// </remarks>
         public PhotonView photonView
         {
             get
             {
-                return PhotonView.Get(this);
+                if (pvCache == null)
+                {
+                    pvCache = PhotonView.Get(this);
+                }
+                return pvCache;
             }
         }
 
+
+        /// <summary>
+        /// This property is only here to notify developers when they use the outdated value.
+        /// </summary>
+        /// <remarks>
+        /// If Unity 5.x logs a compiler warning "Use the new keyword if hiding was intended" or
+        /// "The new keyword is not required", you may suffer from an Editor issue.
+        /// Try to modify networkView with a if-def condition:
+        ///
+        /// #if UNITY_EDITOR
+        /// new
+        /// #endif
+        /// public PhotonView networkView
+        /// </remarks>
+        [Obsolete("Use a photonView")]
         new public PhotonView networkView
         {
             get
@@ -441,10 +492,13 @@ namespace Photon
     /// This class provides a .photonView and all callbacks/events that PUN can call. Override the events/methods you want to use.
     /// </summary>
     /// <remarks>
-    /// This class implements IPunCallbacks where the callback methods are described.
     /// By extending this class, you can implement individual methods as override.
+    ///
     /// Visual Studio and MonoDevelop should provide the list of methods when you begin typing "override".
-    /// Your implementation does not have to call "base.method()".
+    /// <b>Your implementation does not have to call "base.method()".</b>
+    ///
+    /// This class implements IPunCallbacks, which is used as definition of all PUN callbacks.
+    /// Don't implement IPunCallbacks in your classes. Instead, implent PunBehaviour or individual methods.
     /// </remarks>
     /// \ingroup publicApi
     // the documentation for the interface methods becomes inherited when Doxygen builds it.
@@ -478,10 +532,11 @@ namespace Photon
         }
 
         /// <summary>
-        /// Called after switching to a new MasterClient when the current one leaves. The former already got removed from the player list.
+        /// Called after switching to a new MasterClient when the current one leaves.
         /// </summary>
         /// <remarks>
         /// This is not called when this client enters a room.
+        /// The former MasterClient is still in the player list when this method get called.
         /// </remarks>
         public virtual void OnMasterClientSwitched(PhotonPlayer newMasterClient)
         {
@@ -745,6 +800,22 @@ namespace Photon
         /// </remarks>
         /// <param name="debugMessage">Contains a debug message why authentication failed. This has to be fixed during development time.</param>
         public virtual void OnCustomAuthenticationFailed(string debugMessage)
+        {
+        }
+
+        /// <summary>
+        /// Called when your Custom Authentication service responds with additional data.
+        /// </summary>
+        /// <remarks>
+        /// Custom Authentication services can include some custom data in their response.
+        /// When present, that data is made available in this callback as Dictionary.
+        /// While the keys of your data have to be strings, the values can be either string or a number (in Json).
+        /// You need to make extra sure, that the value type is the one you expect. Numbers become (currently) int64.
+        ///
+        /// Example: void OnCustomAuthenticationResponse(Dictionary&lt;string, object&gt; data) { ... }
+        /// </remarks>
+        /// <see cref="https://doc.photonengine.com/en/realtime/current/reference/custom-authentication"/>
+        public virtual void OnCustomAuthenticationResponse(Dictionary<string, object> data)
         {
         }
 
@@ -1058,8 +1129,9 @@ internal class PunEvent
 public class PhotonStream
 {
     bool write = false;
-    internal List<object> data;
-    byte currentItem = 0; //Used to track the next item to receive.
+    private List<object> writeData;
+    private object[] readData;
+    internal byte currentItem = 0; //Used to track the next item to receive.
 
     /// <summary>
     /// Creates a stream and initializes it. Used by PUN internally.
@@ -1069,11 +1141,11 @@ public class PhotonStream
         this.write = write;
         if (incomingData == null)
         {
-            this.data = new List<object>();
+            this.writeData = new List<object>(10);
         }
         else
         {
-            this.data = new List<object>(incomingData);
+            this.readData = incomingData;
         }
     }
 
@@ -1094,7 +1166,7 @@ public class PhotonStream
     {
         get
         {
-            return data.Count;
+            return (this.isWriting) ? this.writeData.Count : this.readData.Length;
         }
     }
 
@@ -1107,7 +1179,7 @@ public class PhotonStream
             return null;
         }
 
-        object obj = this.data[this.currentItem];
+        object obj = this.readData[this.currentItem];
         this.currentItem++;
         return obj;
     }
@@ -1121,7 +1193,7 @@ public class PhotonStream
             return null;
         }
 
-        object obj = this.data[this.currentItem];
+        object obj = this.readData[this.currentItem];
         //this.currentItem++;
         return obj;
     }
@@ -1135,13 +1207,13 @@ public class PhotonStream
             return;
         }
 
-        this.data.Add(obj);
+        this.writeData.Add(obj);
     }
 
     /// <summary>Turns the stream into a new object[].</summary>
     public object[] ToArray()
     {
-        return this.data.ToArray();
+        return this.isWriting ? this.writeData.ToArray() : this.readData;
     }
 
     /// <summary>
@@ -1151,13 +1223,13 @@ public class PhotonStream
     {
         if (this.write)
         {
-            this.data.Add(myBool);
+            this.writeData.Add(myBool);
         }
         else
         {
-            if (this.data.Count > currentItem)
+            if (this.readData.Length > currentItem)
             {
-                myBool = (bool)data[currentItem];
+                myBool = (bool)this.readData[currentItem];
                 this.currentItem++;
             }
         }
@@ -1170,13 +1242,13 @@ public class PhotonStream
     {
         if (write)
         {
-            this.data.Add(myInt);
+            this.writeData.Add(myInt);
         }
         else
         {
-            if (this.data.Count > currentItem)
+            if (this.readData.Length > currentItem)
             {
-                myInt = (int)data[currentItem];
+                myInt = (int)this.readData[currentItem];
                 currentItem++;
             }
         }
@@ -1189,13 +1261,13 @@ public class PhotonStream
     {
         if (write)
         {
-            this.data.Add(value);
+            this.writeData.Add(value);
         }
         else
         {
-            if (this.data.Count > currentItem)
+            if (this.readData.Length > currentItem)
             {
-                value = (string)data[currentItem];
+                value = (string)this.readData[currentItem];
                 currentItem++;
             }
         }
@@ -1208,13 +1280,13 @@ public class PhotonStream
     {
         if (write)
         {
-            this.data.Add(value);
+            this.writeData.Add(value);
         }
         else
         {
-            if (this.data.Count > currentItem)
+            if (this.readData.Length > currentItem)
             {
-                value = (char)data[currentItem];
+                value = (char)this.readData[currentItem];
                 currentItem++;
             }
         }
@@ -1227,13 +1299,13 @@ public class PhotonStream
     {
         if (write)
         {
-            this.data.Add(value);
+            this.writeData.Add(value);
         }
         else
         {
-            if (this.data.Count > currentItem)
+            if (this.readData.Length > currentItem)
             {
-                value = (short)data[currentItem];
+                value = (short)this.readData[currentItem];
                 currentItem++;
             }
         }
@@ -1246,13 +1318,13 @@ public class PhotonStream
     {
         if (write)
         {
-            this.data.Add(obj);
+            this.writeData.Add(obj);
         }
         else
         {
-            if (this.data.Count > currentItem)
+            if (this.readData.Length > currentItem)
             {
-                obj = (float)data[currentItem];
+                obj = (float)this.readData[currentItem];
                 currentItem++;
             }
         }
@@ -1265,13 +1337,13 @@ public class PhotonStream
     {
         if (write)
         {
-            this.data.Add(obj);
+            this.writeData.Add(obj);
         }
         else
         {
-            if (this.data.Count > currentItem)
+            if (this.readData.Length > currentItem)
             {
-                obj = (PhotonPlayer)data[currentItem];
+                obj = (PhotonPlayer)this.readData[currentItem];
                 currentItem++;
             }
         }
@@ -1284,13 +1356,13 @@ public class PhotonStream
     {
         if (write)
         {
-            this.data.Add(obj);
+            this.writeData.Add(obj);
         }
         else
         {
-            if (this.data.Count > currentItem)
+            if (this.readData.Length > currentItem)
             {
-                obj = (Vector3)data[currentItem];
+                obj = (Vector3)this.readData[currentItem];
                 currentItem++;
             }
         }
@@ -1303,13 +1375,13 @@ public class PhotonStream
     {
         if (write)
         {
-            this.data.Add(obj);
+            this.writeData.Add(obj);
         }
         else
         {
-            if (this.data.Count > currentItem)
+            if (this.readData.Length > currentItem)
             {
-                obj = (Vector2)data[currentItem];
+                obj = (Vector2)this.readData[currentItem];
                 currentItem++;
             }
         }
@@ -1322,13 +1394,13 @@ public class PhotonStream
     {
         if (write)
         {
-            this.data.Add(obj);
+            this.writeData.Add(obj);
         }
         else
         {
-            if (this.data.Count > currentItem)
+            if (this.readData.Length > currentItem)
             {
-                obj = (Quaternion)data[currentItem];
+                obj = (Quaternion)this.readData[currentItem];
                 currentItem++;
             }
         }
@@ -1346,6 +1418,102 @@ public class HelpURL : Attribute
     }
 }
 #endif
+
+
+#if !UNITY_MIN_5_3
+// in Unity 5.3 and up, we have to use a SceneManager. This section re-implements it for older Unity versions
+
+#if UNITY_EDITOR
+namespace UnityEditor.SceneManagement
+{
+    /// <summary>Minimal implementation of the EditorSceneManager for older Unity, up to v5.2.</summary>
+    public class EditorSceneManager
+    {
+        public static int loadedSceneCount
+        {
+            get { return string.IsNullOrEmpty(UnityEditor.EditorApplication.currentScene) ? -1 : 1; }
+        }
+
+        public static void OpenScene(string name)
+        {
+            UnityEditor.EditorApplication.OpenScene(name);
+        }
+
+        public static void SaveOpenScenes()
+        {
+            UnityEditor.EditorApplication.SaveScene();
+        }
+
+        public static void SaveCurrentModifiedScenesIfUserWantsTo()
+        {
+            UnityEditor.EditorApplication.SaveCurrentSceneIfUserWantsTo();
+        }
+    }
+}
+#endif
+
+namespace UnityEngine.SceneManagement
+{
+    /// <summary>Minimal implementation of the SceneManager for older Unity, up to v5.2.</summary>
+    public class SceneManager
+    {
+        public static void LoadScene(string name)
+        {
+            Application.LoadLevel(name);
+        }
+
+        public static void LoadScene(int buildIndex)
+        {
+            Application.LoadLevel(buildIndex);
+        }
+    }
+}
+
+#endif
+
+
+public class SceneManagerHelper
+{
+    public static string ActiveSceneName
+    {
+        get
+        {
+            #if UNITY_MIN_5_3
+            UnityEngine.SceneManagement.Scene s = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+            return s.name;
+            #else
+            return Application.loadedLevelName;
+            #endif
+        }
+    }
+
+    public static int ActiveSceneBuildIndex
+    {
+        get
+        {
+            #if UNITY_MIN_5_3
+            return UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex;
+            #else
+            return Application.loadedLevel;
+            #endif
+        }
+    }
+
+
+#if UNITY_EDITOR
+    public static string EditorActiveSceneName
+    {
+        get
+        {
+            #if UNITY_MIN_5_3
+            return UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene().name;
+            #else
+            return System.IO.Path.GetFileNameWithoutExtension(UnityEditor.EditorApplication.currentScene);
+            #endif
+        }
+    }
+#endif
+}
 
 
 /// <summary>Reads an operation response of a WebRpc and provides convenient access to most common values.</summary>
